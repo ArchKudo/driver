@@ -318,6 +318,10 @@ func buildRef(cdsFile, genomeFile string, excludeChrs, onlyChrs []string, useIDs
 		return BuildRefResult{}, err
 	}
 
+	// Create a set from excludeChrs
+	// Iterate over validChrs if chr not in newly created excludeChrs set
+	// Add the chr to filtered
+	// Replace validChrs with filtered
 	if len(excludeChrs) > 0 {
 		ex := make(map[string]struct{}, len(excludeChrs))
 		for _, c := range excludeChrs {
@@ -332,6 +336,7 @@ func buildRef(cdsFile, genomeFile string, excludeChrs, onlyChrs []string, useIDs
 		validChrs = filtered
 	}
 
+	// This time keep onlyChrs
 	if len(onlyChrs) > 0 {
 		only := make(map[string]struct{}, len(onlyChrs))
 		for _, c := range onlyChrs {
@@ -346,6 +351,7 @@ func buildRef(cdsFile, genomeFile string, excludeChrs, onlyChrs []string, useIDs
 		validChrs = filtered
 	}
 
+	// Keep chrs common between reftable and validChrs. If none, try adding "chr" prefix to reftable chrs and check again.
 	reftableChrs := uniqueStr(func() []string {
 		out := make([]string, 0, len(reftable))
 		for _, r := range reftable {
@@ -394,11 +400,13 @@ func buildRef(cdsFile, genomeFile string, excludeChrs, onlyChrs []string, useIDs
 		validChrs = filtered
 	}
 
+	// Keep only unique chromosomes in validChrs
 	validChrSet := make(map[string]struct{}, len(validChrs))
 	for _, c := range validChrs {
 		validChrSet[c] = struct{}{}
 	}
 
+	// Clean reftable by removing rows with missing geneID, geneName, or CDSID, and rows with chromosomes not in validChrSet
 	cleaned := make([]CDSRow, 0, len(reftable))
 	for _, r := range reftable {
 		if r.GeneID == "" || r.GeneName == "" || r.CDSID == "" {
@@ -411,6 +419,7 @@ func buildRef(cdsFile, genomeFile string, excludeChrs, onlyChrs []string, useIDs
 	}
 	reftable = cleaned
 
+	// TODO: Remove this map conversion again
 	contigs, err := readFasta(genomeFile)
 	if err != nil {
 		return BuildRefResult{}, err
@@ -422,6 +431,8 @@ func buildRef(cdsFile, genomeFile string, excludeChrs, onlyChrs []string, useIDs
 		lengths[c.Name] = c.Length
 	}
 
+	// Check no coordinates fall outside of the chromosome lengths
+	// TODO: Move to a separate function
 	outside := 0
 	inside := make([]CDSRow, 0, len(reftable))
 	for _, r := range reftable {
