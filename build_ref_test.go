@@ -400,15 +400,23 @@ func TestFastaLoadAndIndex(t *testing.T) {
 		t.Fatalf("failed to write fasta: %v", err)
 	}
 
-	seqs, lengths, err := loadFasta(fastaPath)
+	contigs, err := readFasta(fastaPath)
 	if err != nil {
-		t.Fatalf("loadFasta returned error: %v", err)
+		t.Fatalf("readFasta returned error: %v", err)
 	}
-	if seqs["chrB"] != "ACGTTT" || lengths["chrB"] != 6 {
-		t.Fatalf("unexpected chrB sequence data: seq=%s len=%d", seqs["chrB"], lengths["chrB"])
+	if len(contigs) != 2 {
+		t.Fatalf("unexpected contig count: got %d, want 2", len(contigs))
 	}
-	if seqs["chrA"] != "GGCC" || lengths["chrA"] != 4 {
-		t.Fatalf("unexpected chrA sequence data: seq=%s len=%d", seqs["chrA"], lengths["chrA"])
+	if contigs[0].Name != "chrB" || contigs[0].Seq != "ACGTTT" || contigs[0].Length != 6 {
+		t.Fatalf("unexpected first contig data: %#v", contigs[0])
+	}
+	if contigs[1].Name != "chrA" || contigs[1].Seq != "GGCC" || contigs[1].Length != 4 {
+		t.Fatalf("unexpected second contig data: %#v", contigs[1])
+	}
+
+	seqs, lengths := contigMaps(contigs)
+	if seqs["chrB"] != "ACGTTT" || lengths["chrA"] != 4 {
+		t.Fatalf("unexpected contigMaps output: seqs=%v lengths=%v", seqs, lengths)
 	}
 
 	chrs, err := fastaIndexChromosomes(fastaPath)

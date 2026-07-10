@@ -140,6 +140,91 @@ func readCDSTable(cdsfile string) ([]CDSRow, error) {
 	return rows, nil
 }
 
+type Contig struct {
+	Name   string
+	Seq    string
+	Length int
+}
+
+func readFasta(path string) ([]Contig, error) {
+	const MB = 1024 * 1024
+
+	file, err := os.Open(path)
+
+	if err != nil {
+		return nil, err
+	}
+
+	defer file.Close()
+
+	contigs := make([]Contig, 0)
+
+	scanner := bufio.NewScanner(file)
+	initial := make([]byte, 0, MB)
+	scanner.Buffer(initial, 32*MB)
+
+	buffer := strings.Builder{}
+	var contig Contig
+	haveHeader := false
+
+	flush := func() {
+		if !haveHeader {
+			return
+		}
+		contig.Seq = strings.ToUpper(buffer.String())
+		contig.Length = len(contig.Seq)
+		contigs = append(contigs, contig)
+		buffer.Reset()
+	}
+
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+
+		if strings.HasPrefix(line, ">") {
+			flush()
+			header := strings.TrimPrefix(line, ">")
+			parts := strings.Fields(header)
+			if len(parts) == 0 {
+				return contigs, fmt.Errorf("couldn't parse fasta header: %s", line)
+			}
+			haveHeader = true
+			contig = Contig{Name: parts[0]}
+			buffer.Reset()
+			contig.Name = parts[0]
+			continue
+		}
+
+		if !haveHeader {
+			return contigs, fmt.Errorf("fasta sequence found before header: %s", line)
+		}
+
+		buffer.WriteString(line)
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	flush()
+
+	if len(contigs) == 0 {
+		return contigs, fmt.Errorf("no sequences found in fasta")
+	}
+
+	return contigs, nil
+}
+
+func contigMaps(contigs []Contig) (map[string]string, map[string]int) {
+	seqs := make(map[string]string, len(contigs))
+	lengths := make(map[string]int, len(contigs))
+	for _, c := range contigs {
+		seqs[c.Name] = c.Seq
+		lengths[c.Name] = c.Length
+	}
+	return seqs, lengths
+}
+
 type Interval struct {
 	Start int
 	End   int
@@ -294,10 +379,11 @@ func buildRef(cdsFile, genomeFile string, excludeChrs, onlyChrs []string, useIDs
 	}
 	reftable = cleaned
 
-	genome, lengths, err := loadFasta(genomeFile)
+	contigs, err := readFasta(genomeFile)
 	if err != nil {
 		return BuildRefResult{}, err
 	}
+	genome, lengths := contigMaps(contigs)
 
 	outside := 0
 	inside := make([]CDSRow, 0, len(reftable))
@@ -482,8 +568,8 @@ func parseInt(v string) (int, error) {
 	return n, nil
 }
 
-func fastaIndexChromosomes(genomeFile string) ([]string, error) {
-	faiPath := genomeFile + ".fai"
+func fastaIndexChromosomes(fasta string) ([]string, error) {
+	faiPath := fasta + ".fai"
 	if _, err := os.Stat(faiPath); err == nil {
 		f, err := os.Open(faiPath)
 		if err != nil {
@@ -509,73 +595,17 @@ func fastaIndexChromosomes(genomeFile string) ([]string, error) {
 		return chrs, nil
 	}
 
-	_, lengths, err := loadFasta(genomeFile)
+	contigs, err := readFasta(fasta)
 	if err != nil {
 		return nil, err
 	}
+	_, lengths := contigMaps(contigs)
 	chrs := make([]string, 0, len(lengths))
 	for c := range lengths {
 		chrs = append(chrs, c)
 	}
 	sort.Strings(chrs)
 	return chrs, nil
-}
-
-func loadFasta(path string) (map[string]string, map[string]int, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, nil, err
-	}
-	defer f.Close()
-
-	seqs := map[string]string{}
-	lengths := map[string]int{}
-
-	s := bufio.NewScanner(f)
-	buf := make([]byte, 0, 1024*1024)
-	s.Buffer(buf, 32*1024*1024)
-
-	cur := ""
-	b := strings.Builder{}
-	flush := func() {
-		if cur == "" {
-			return
-		}
-		seq := strings.ToUpper(b.String())
-		seqs[cur] = seq
-		lengths[cur] = len(seq)
-		b.Reset()
-	}
-
-	for s.Scan() {
-		line := strings.TrimSpace(s.Text())
-		if line == "" {
-			continue
-		}
-		if strings.HasPrefix(line, ">") {
-			flush()
-			header := strings.TrimPrefix(line, ">")
-			parts := strings.Fields(header)
-			if len(parts) == 0 {
-				return nil, nil, fmt.Errorf("invalid fasta header")
-			}
-			cur = parts[0]
-			continue
-		}
-		if cur == "" {
-			return nil, nil, fmt.Errorf("fasta sequence before header")
-		}
-		b.WriteString(line)
-	}
-	if err := s.Err(); err != nil {
-		return nil, nil, err
-	}
-	flush()
-
-	if len(seqs) == 0 {
-		return nil, nil, fmt.Errorf("no sequences found in fasta")
-	}
-	return seqs, lengths, nil
 }
 
 func findFullCDS(rows []CDSRow) map[string]struct{} {
@@ -992,4 +1022,7 @@ func main() {
 	for i := 0; i < 5; i++ {
 		fmt.Println(sample_sheet[i])
 	}
+
+	contigs, _ := readFasta(filepath.Join("data", "chr3_segment.fa"))
+	fmt.Println(contigs[0].Name, contigs[0].Seq[:10], contigs[0].Length)
 }
