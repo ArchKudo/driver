@@ -21,62 +21,6 @@ type Mutation struct {
 	alt      string
 }
 
-type CDSRow struct {
-	GeneID         string
-	GeneName       string
-	CDSID          string
-	Chr            string
-	ChrCodingStart int
-	ChrCodingEnd   int
-	CDSStart       int
-	CDSEnd         int
-	Length         int
-	Strand         int
-}
-
-type Interval struct {
-	Start int
-	End   int
-}
-
-type RefCDSEntry struct {
-	GeneName        string
-	GeneID          string
-	ProteinID       string
-	CDSLength       int
-	Chr             string
-	Strand          int
-	IntervalsCDS    []Interval
-	IntervalsSplice []int
-	SeqCDS          string
-	SeqCDS1Up       string
-	SeqCDS1Down     string
-	SeqSplice       string
-	SeqSplice1Up    string
-	SeqSplice1Down  string
-	L               [192][4]int
-}
-
-type GeneRange struct {
-	Index int
-	Chr   string
-	Start int
-	End   int
-	Gene  string
-}
-
-type BuildRefResult struct {
-	RefCDS  []RefCDSEntry
-	GRGenes []GeneRange
-}
-
-type codonMeta struct {
-	trinucs     []string
-	trinucIndex map[string]int
-	subsIndex   map[string]int
-	impact      [64][64]int
-}
-
 func readSampleSheet(filename string) []Mutation {
 	file, err := os.Open(filename)
 
@@ -128,6 +72,115 @@ func readSampleSheet(filename string) []Mutation {
 
 	return mutations
 
+}
+
+type CDSRow struct {
+	GeneID         string
+	GeneName       string
+	CDSID          string
+	Chr            string
+	ChrCodingStart int
+	ChrCodingEnd   int
+	CDSStart       int
+	CDSEnd         int
+	Length         int
+	Strand         int
+}
+
+func readCDSTable(cdsfile string) ([]CDSRow, error) {
+	f, err := os.Open(cdsfile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to open cdsfile: %w", err)
+	}
+	defer f.Close()
+
+	r := csv.NewReader(f)
+	r.Comma = '\t'
+	r.FieldsPerRecord = -1
+	recs, err := r.ReadAll()
+	if err != nil {
+		return nil, fmt.Errorf("failed to read cdsfile: %w", err)
+	}
+	if len(recs) < 2 {
+		return nil, fmt.Errorf("cdsfile has no data rows")
+	}
+
+	rows := make([]CDSRow, 0, len(recs)-1)
+	for i := 1; i < len(recs); i++ {
+		rec := recs[i]
+		if len(rec) < 10 {
+			continue
+		}
+		row := CDSRow{
+			GeneID:   rec[0],
+			GeneName: rec[1],
+			CDSID:    rec[2],
+			Chr:      rec[3],
+		}
+		if row.ChrCodingStart, err = parseInt(rec[4]); err != nil {
+			continue
+		}
+		if row.ChrCodingEnd, err = parseInt(rec[5]); err != nil {
+			continue
+		}
+		if row.CDSStart, err = parseInt(rec[6]); err != nil {
+			continue
+		}
+		if row.CDSEnd, err = parseInt(rec[7]); err != nil {
+			continue
+		}
+		if row.Length, err = parseInt(rec[8]); err != nil {
+			continue
+		}
+		if row.Strand, err = parseInt(rec[9]); err != nil {
+			continue
+		}
+		rows = append(rows, row)
+	}
+	return rows, nil
+}
+
+type Interval struct {
+	Start int
+	End   int
+}
+
+type RefCDSEntry struct {
+	GeneName        string
+	GeneID          string
+	ProteinID       string
+	CDSLength       int
+	Chr             string
+	Strand          int
+	IntervalsCDS    []Interval
+	IntervalsSplice []int
+	SeqCDS          string
+	SeqCDS1Up       string
+	SeqCDS1Down     string
+	SeqSplice       string
+	SeqSplice1Up    string
+	SeqSplice1Down  string
+	L               [192][4]int
+}
+
+type GeneRange struct {
+	Index int
+	Chr   string
+	Start int
+	End   int
+	Gene  string
+}
+
+type BuildRefResult struct {
+	RefCDS  []RefCDSEntry
+	GRGenes []GeneRange
+}
+
+type codonMeta struct {
+	trinucs     []string
+	trinucIndex map[string]int
+	subsIndex   map[string]int
+	impact      [64][64]int
 }
 
 func buildRef(cdsFile, genomeFile string, excludeChrs, onlyChrs []string, useIDs bool) (BuildRefResult, error) {
@@ -415,59 +468,6 @@ func buildRef(cdsFile, genomeFile string, excludeChrs, onlyChrs []string, useIDs
 	}
 
 	return BuildRefResult{RefCDS: ref, GRGenes: geneRanges}, nil
-}
-
-func readCDSTable(path string) ([]CDSRow, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open cdsfile: %w", err)
-	}
-	defer f.Close()
-
-	r := csv.NewReader(f)
-	r.Comma = '\t'
-	r.FieldsPerRecord = -1
-	recs, err := r.ReadAll()
-	if err != nil {
-		return nil, fmt.Errorf("failed to read cdsfile: %w", err)
-	}
-	if len(recs) < 2 {
-		return nil, fmt.Errorf("cdsfile has no data rows")
-	}
-
-	rows := make([]CDSRow, 0, len(recs)-1)
-	for i := 1; i < len(recs); i++ {
-		rec := recs[i]
-		if len(rec) < 10 {
-			continue
-		}
-		row := CDSRow{
-			GeneID:   rec[0],
-			GeneName: rec[1],
-			CDSID:    rec[2],
-			Chr:      rec[3],
-		}
-		if row.ChrCodingStart, err = parseInt(rec[4]); err != nil {
-			continue
-		}
-		if row.ChrCodingEnd, err = parseInt(rec[5]); err != nil {
-			continue
-		}
-		if row.CDSStart, err = parseInt(rec[6]); err != nil {
-			continue
-		}
-		if row.CDSEnd, err = parseInt(rec[7]); err != nil {
-			continue
-		}
-		if row.Length, err = parseInt(rec[8]); err != nil {
-			continue
-		}
-		if row.Strand, err = parseInt(rec[9]); err != nil {
-			continue
-		}
-		rows = append(rows, row)
-	}
-	return rows, nil
 }
 
 func parseInt(v string) (int, error) {

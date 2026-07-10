@@ -85,3 +85,10 @@ Sample sheet (Required)
 - filter on chrs present in both fasta and cds table
 
 - throw genes away not in chrs/contigs
+
+
+## [driver.go](driver.go)
+
+### [sample_sheet_test.go](sample_sheet_test.go)
+
+- Contains unittests for loading samplesheet
