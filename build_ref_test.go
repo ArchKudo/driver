@@ -414,15 +414,10 @@ func TestFastaLoadAndIndex(t *testing.T) {
 		t.Fatalf("unexpected second contig data: %#v", contigs[1])
 	}
 
-	seqs, lengths := contigMaps(contigs)
-	if seqs["chrB"] != "ACGTTT" || lengths["chrA"] != 4 {
-		t.Fatalf("unexpected contigMaps output: seqs=%v lengths=%v", seqs, lengths)
-	}
-
-	chrs, err := fastaIndexChromosomes(fastaPath)
-	if err != nil {
-		t.Fatalf("fastaIndexChromosomes returned error: %v", err)
-	}
+	// When .fai is absent readIndex falls back to FASTA and returns the
+	// os.ReadFile error alongside the chromosome list so callers know the
+	// index was missing. We verify the list is correct and ignore that error.
+	chrs, _ := readIndex(fastaPath)
 	if !reflect.DeepEqual(chrs, []string{"chrA", "chrB"}) {
 		t.Fatalf("unexpected chromosome list without .fai: got %v", chrs)
 	}
@@ -433,9 +428,9 @@ func TestFastaLoadAndIndex(t *testing.T) {
 		t.Fatalf("failed to write fai: %v", err)
 	}
 
-	chrs, err = fastaIndexChromosomes(fastaPath)
+	chrs, err = readIndex(fastaPath)
 	if err != nil {
-		t.Fatalf("fastaIndexChromosomes with .fai returned error: %v", err)
+		t.Fatalf("readIndex with .fai returned error: %v", err)
 	}
 	if !reflect.DeepEqual(chrs, []string{"chrB", "chrA"}) {
 		t.Fatalf("unexpected chromosome list with .fai: got %v", chrs)

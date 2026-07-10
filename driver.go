@@ -13,6 +13,7 @@ import (
 	"strings"
 )
 
+// Struct for columns in sample sheet
 type Mutation struct {
 	sampleID string
 	chr      string
@@ -21,6 +22,8 @@ type Mutation struct {
 	alt      string
 }
 
+// Parse the main input sample sheet
+// Psuedo vcf file
 func readSampleSheet(filename string) []Mutation {
 	file, err := os.Open(filename)
 
@@ -74,6 +77,7 @@ func readSampleSheet(filename string) []Mutation {
 
 }
 
+// Struct for CDS table
 type CDSRow struct {
 	GeneID         string
 	GeneName       string
@@ -87,6 +91,7 @@ type CDSRow struct {
 	Strand         int
 }
 
+// Fetched from BioMart with CDSRow fields
 func readCDSTable(cdsfile string) ([]CDSRow, error) {
 	f, err := os.Open(cdsfile)
 	if err != nil {
@@ -140,12 +145,14 @@ func readCDSTable(cdsfile string) ([]CDSRow, error) {
 	return rows, nil
 }
 
+// Struct for parsing fasta
 type Contig struct {
 	Name   string
 	Seq    string
 	Length int
 }
 
+// Get headers, seq, length of sequence from a fasta file
 func readFasta(path string) ([]Contig, error) {
 	const MB = 1024 * 1024
 
@@ -215,14 +222,39 @@ func readFasta(path string) ([]Contig, error) {
 	return contigs, nil
 }
 
-func contigMaps(contigs []Contig) (map[string]string, map[string]int) {
-	seqs := make(map[string]string, len(contigs))
-	lengths := make(map[string]int, len(contigs))
-	for _, c := range contigs {
-		seqs[c.Name] = c.Seq
-		lengths[c.Name] = c.Length
+// readIndex returns the ordered list of chromosome names from the FASTA index
+// (.fai). Falls back to parsing the FASTA directly when the index is absent;
+// in that case names are sorted alphabetically.
+func readIndex(fasta string) ([]string, error) {
+	data, err := os.ReadFile(fasta + ".fai")
+	if err != nil {
+		// No index: fall back to parsing the FASTA file.
+		contigs, ef := readFasta(fasta)
+		if ef != nil {
+			return nil, fmt.Errorf("failed to get chromosomes via both methods: fai: %w; fasta: %w", err, ef)
+		}
+		chrs := make([]string, 0, len(contigs))
+		for _, c := range contigs {
+			chrs = append(chrs, c.Name)
+		}
+		sort.Strings(chrs)
+		return chrs, err
 	}
-	return seqs, lengths
+
+	// Parse tab-separated .fai: first field of every non-empty line is the name.
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
+	chrs := make([]string, 0, len(lines))
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		fields := strings.SplitN(line, "\t", 2)
+		if len(fields) == 0 || fields[0] == "" {
+			return nil, fmt.Errorf("couldn't parse index line: %s", line)
+		}
+		chrs = append(chrs, fields[0])
+	}
+	return chrs, nil
 }
 
 type Interval struct {
@@ -281,7 +313,7 @@ func buildRef(cdsFile, genomeFile string, excludeChrs, onlyChrs []string, useIDs
 		}
 	}
 
-	validChrs, err := fastaIndexChromosomes(genomeFile)
+	validChrs, err := readIndex(genomeFile)
 	if err != nil {
 		return BuildRefResult{}, err
 	}
@@ -383,7 +415,12 @@ func buildRef(cdsFile, genomeFile string, excludeChrs, onlyChrs []string, useIDs
 	if err != nil {
 		return BuildRefResult{}, err
 	}
-	genome, lengths := contigMaps(contigs)
+	genome := make(map[string]string, len(contigs))
+	lengths := make(map[string]int, len(contigs))
+	for _, c := range contigs {
+		genome[c.Name] = c.Seq
+		lengths[c.Name] = c.Length
+	}
 
 	outside := 0
 	inside := make([]CDSRow, 0, len(reftable))
@@ -566,46 +603,6 @@ func parseInt(v string) (int, error) {
 		return 0, err
 	}
 	return n, nil
-}
-
-func fastaIndexChromosomes(fasta string) ([]string, error) {
-	faiPath := fasta + ".fai"
-	if _, err := os.Stat(faiPath); err == nil {
-		f, err := os.Open(faiPath)
-		if err != nil {
-			return nil, err
-		}
-		defer f.Close()
-		s := bufio.NewScanner(f)
-		chrs := make([]string, 0)
-		for s.Scan() {
-			line := strings.TrimSpace(s.Text())
-			if line == "" {
-				continue
-			}
-			fields := strings.Split(line, "\t")
-			if len(fields) == 0 || fields[0] == "" {
-				continue
-			}
-			chrs = append(chrs, fields[0])
-		}
-		if err := s.Err(); err != nil {
-			return nil, err
-		}
-		return chrs, nil
-	}
-
-	contigs, err := readFasta(fasta)
-	if err != nil {
-		return nil, err
-	}
-	_, lengths := contigMaps(contigs)
-	chrs := make([]string, 0, len(lengths))
-	for c := range lengths {
-		chrs = append(chrs, c)
-	}
-	sort.Strings(chrs)
-	return chrs, nil
 }
 
 func findFullCDS(rows []CDSRow) map[string]struct{} {
@@ -1025,4 +1022,8 @@ func main() {
 
 	contigs, _ := readFasta(filepath.Join("data", "chr3_segment.fa"))
 	fmt.Println(contigs[0].Name, contigs[0].Seq[:10], contigs[0].Length)
+
+	chrs, err := readIndex(filepath.Join("data", "chr3_segment.fa"))
+	fmt.Println(chrs, err)
+
 }
