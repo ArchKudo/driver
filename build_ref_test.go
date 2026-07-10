@@ -213,7 +213,7 @@ func TestBuildRef_ExtDataMatchesRDAOracle(t *testing.T) {
 
 	expected := loadExpectedFromRDA(t, rda)
 
-	got, err := buildRef(cds, fasta, 1, nil, nil, false)
+	got, err := buildRef(cds, fasta, nil, nil, false)
 	if err != nil {
 		t.Fatalf("buildRef returned error: %v", err)
 	}
@@ -298,7 +298,7 @@ func TestBuildRef_OnlyChrFilter(t *testing.T) {
 	cds := filepath.Join(base, "BioMart_human_GRCh37_chr3_segment.txt")
 	fasta := filepath.Join(base, "chr3_segment.fa")
 
-	got, err := buildRef(cds, fasta, 1, nil, []string{"3"}, false)
+	got, err := buildRef(cds, fasta, nil, []string{"3"}, false)
 	if err != nil {
 		t.Fatalf("buildRef returned error with onlychrs filter: %v", err)
 	}

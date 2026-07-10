@@ -130,10 +130,7 @@ func readSampleSheet(filename string) []Mutation {
 
 }
 
-func buildRef(cdsFile, genomeFile string, numcode int, excludeChrs, onlyChrs []string, useIDs bool) (BuildRefResult, error) {
-	if numcode != 1 {
-		return BuildRefResult{}, fmt.Errorf("only numcode=1 is supported in this Go implementation")
-	}
+func buildRef(cdsFile, genomeFile string, excludeChrs, onlyChrs []string, useIDs bool) (BuildRefResult, error) {
 
 	reftable, err := readCDSTable(cdsFile)
 	if err != nil {
