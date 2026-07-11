@@ -562,15 +562,15 @@ func TestReadCDSTable(t *testing.T) {
 		t.Fatalf("failed to write cds table: %v", err)
 	}
 
-	rows, err := readCDSTable(path)
+	rows, err := readCDS(path)
 	if err != nil {
-		t.Fatalf("readCDSTable returned error: %v", err)
+		t.Fatalf("readCDS returned error: %v", err)
 	}
 	if len(rows) != 2 {
-		t.Fatalf("readCDSTable mismatch: got %d rows", len(rows))
+		t.Fatalf("readCDS mismatch: got %d rows", len(rows))
 	}
 	if rows[1].Strand != -1 {
-		t.Fatalf("readCDSTable strand parsing mismatch: got %d", rows[1].Strand)
+		t.Fatalf("readCDS strand parsing mismatch: got %d", rows[1].Strand)
 	}
 }
 

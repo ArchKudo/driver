@@ -92,7 +92,7 @@ type CDSRow struct {
 }
 
 // Fetched from BioMart with CDSRow fields
-func readCDSTable(cdsfile string) ([]CDSRow, error) {
+func readCDS(cdsfile string) ([]CDSRow, error) {
 	f, err := os.Open(cdsfile)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open cdsfile: %w", err)
@@ -143,6 +143,26 @@ func readCDSTable(cdsfile string) ([]CDSRow, error) {
 		rows = append(rows, row)
 	}
 	return rows, nil
+}
+
+func findFullCDS(rows []CDSRow) map[string]struct{} {
+	startSet := map[string]struct{}{}
+	endSet := map[string]struct{}{}
+	for _, r := range rows {
+		if r.CDSStart == 1 {
+			startSet[r.CDSID] = struct{}{}
+		}
+		if r.CDSEnd == r.Length {
+			endSet[r.CDSID] = struct{}{}
+		}
+	}
+	full := make(map[string]struct{})
+	for id := range startSet {
+		if _, ok := endSet[id]; ok {
+			full[id] = struct{}{}
+		}
+	}
+	return full
 }
 
 // Struct for parsing fasta
@@ -300,9 +320,260 @@ type codonMeta struct {
 	impact      [64][64]int
 }
 
+// CDSProcessor provides a fluent interface for processing and filtering CDS records.
+type CDSProcessor struct {
+	rows      []CDSRow
+	genome    map[string]string
+	lengths   map[string]int
+	validChrs []string
+}
+
+// NewCDSProcessor creates a new processor from a slice of CDS rows
+func NewCDSProcessor(rows []CDSRow) *CDSProcessor {
+	return &CDSProcessor{
+		rows: rows,
+	}
+}
+
+// WithGenome sets the genome data for coordinate validation
+func (p *CDSProcessor) WithGenome(genome map[string]string, lengths map[string]int) *CDSProcessor {
+	p.genome = genome
+	p.lengths = lengths
+	return p
+}
+
+// WithValidChromosomes sets the list of valid chromosomes
+func (p *CDSProcessor) WithValidChromosomes(chrs []string) *CDSProcessor {
+	p.validChrs = chrs
+	return p
+}
+
+// FilterExcludedChromosomes removes rows with chromosomes in the exclude list
+func (p *CDSProcessor) FilterExcludedChromosomes(excludeChrs []string) *CDSProcessor {
+	if len(excludeChrs) == 0 {
+		return p
+	}
+	ex := make(map[string]struct{}, len(excludeChrs))
+	for _, c := range excludeChrs {
+		ex[c] = struct{}{}
+	}
+	filtered := make([]CDSRow, 0, len(p.rows))
+	for _, r := range p.rows {
+		if _, ok := ex[r.Chr]; !ok {
+			filtered = append(filtered, r)
+		}
+	}
+	p.rows = filtered
+	return p
+}
+
+// FilterOnlyChromosomes keeps only rows with chromosomes in the include list
+func (p *CDSProcessor) FilterOnlyChromosomes(onlyChrs []string) *CDSProcessor {
+	if len(onlyChrs) == 0 {
+		return p
+	}
+	only := make(map[string]struct{}, len(onlyChrs))
+	for _, c := range onlyChrs {
+		only[c] = struct{}{}
+	}
+	filtered := make([]CDSRow, 0, len(p.rows))
+	for _, r := range p.rows {
+		if _, ok := only[r.Chr]; ok {
+			filtered = append(filtered, r)
+		}
+	}
+	p.rows = filtered
+	return p
+}
+
+// NormalizeChromosomeNames attempts to reconcile chromosome names between CDS and genome.
+// If no overlap is found, prepends "chr" prefix to CDS chromosomes.
+func (p *CDSProcessor) NormalizeChromosomeNames(genomeChrs []string) *CDSProcessor {
+	reftableChrs := uniqueStr(func() []string {
+		out := make([]string, 0, len(p.rows))
+		for _, r := range p.rows {
+			out = append(out, r.Chr)
+		}
+		return out
+	}())
+
+	chrSet := make(map[string]struct{}, len(reftableChrs))
+	for _, c := range reftableChrs {
+		chrSet[c] = struct{}{}
+	}
+
+	hasOverlap := false
+	for _, c := range genomeChrs {
+		if _, ok := chrSet[c]; ok {
+			hasOverlap = true
+			break
+		}
+	}
+
+	if !hasOverlap {
+		// Try adding "chr" prefix
+		for i := range p.rows {
+			p.rows[i].Chr = "chr" + p.rows[i].Chr
+		}
+		chrSet = make(map[string]struct{}, len(p.rows))
+		for _, r := range p.rows {
+			chrSet[r.Chr] = struct{}{}
+		}
+		filteredChrs := make([]string, 0, len(genomeChrs))
+		for _, c := range genomeChrs {
+			if _, ok := chrSet[c]; ok {
+				filteredChrs = append(filteredChrs, c)
+			}
+		}
+		genomeChrs = filteredChrs
+		if len(genomeChrs) == 0 {
+			// Keep rows but record that normalization failed
+			return p
+		}
+	}
+
+	// Keep only chromosomes in common
+	chrSet = make(map[string]struct{}, len(genomeChrs))
+	for _, c := range genomeChrs {
+		chrSet[c] = struct{}{}
+	}
+	filtered := make([]CDSRow, 0, len(p.rows))
+	for _, r := range p.rows {
+		if _, ok := chrSet[r.Chr]; ok {
+			filtered = append(filtered, r)
+		}
+	}
+	p.rows = filtered
+	return p
+}
+
+// RemoveIncompleteRecords removes rows with missing GeneID, GeneName, CDSID, or invalid chromosomes
+func (p *CDSProcessor) RemoveIncompleteRecords() *CDSProcessor {
+	validChrSet := make(map[string]struct{}, len(p.validChrs))
+	for _, c := range p.validChrs {
+		validChrSet[c] = struct{}{}
+	}
+
+	cleaned := make([]CDSRow, 0, len(p.rows))
+	for _, r := range p.rows {
+		if r.GeneID == "" || r.GeneName == "" || r.CDSID == "" {
+			continue
+		}
+		if _, ok := validChrSet[r.Chr]; !ok {
+			continue
+		}
+		cleaned = append(cleaned, r)
+	}
+	p.rows = cleaned
+	return p
+}
+
+// ValidateCoordinates removes rows with coordinates that fall outside chromosome lengths
+func (p *CDSProcessor) ValidateCoordinates() (*CDSProcessor, error) {
+	if len(p.lengths) == 0 {
+		return p, fmt.Errorf("genome lengths not set")
+	}
+
+	outside := 0
+	inside := make([]CDSRow, 0, len(p.rows))
+	for _, r := range p.rows {
+		chrLen, ok := p.lengths[r.Chr]
+		if !ok || r.ChrCodingStart < 1 || r.ChrCodingEnd > chrLen || r.ChrCodingStart > r.ChrCodingEnd {
+			outside++
+			continue
+		}
+		inside = append(inside, r)
+	}
+	p.rows = inside
+	if outside > 0 {
+		return p, fmt.Errorf("aborting buildref. %d rows in cdsfile have coordinates that fall outside of the corresponding chromosome length. please ensure that you are using the same assembly for the cdsfile and genomefile", outside)
+	}
+	return p, nil
+}
+
+// FindFullCDS identifies CDS entries with complete coding sequences
+func (p *CDSProcessor) FindFullCDS() map[string]struct{} {
+	return findFullCDS(p.rows)
+}
+
+// TrimBoundaryBases removes first 3 bases at chromosome start and last 3 bases at chromosome end
+func (p *CDSProcessor) TrimBoundaryBases() *CDSProcessor {
+	for i := range p.rows {
+		if p.rows[i].ChrCodingStart == 1 {
+			p.rows[i].ChrCodingStart += 3
+			p.rows[i].CDSStart += 3
+		}
+		if len(p.lengths) > 0 && p.lengths[p.rows[i].Chr] == p.rows[i].ChrCodingEnd {
+			p.rows[i].ChrCodingEnd -= 3
+			p.rows[i].CDSEnd -= 3
+		}
+	}
+	return p
+}
+
+// DeduplicateByCDSKey removes duplicate CDS records, keeping only the key fields
+func (p *CDSProcessor) DeduplicateByCDSKey() *CDSProcessor {
+	p.rows = uniqueCDSKeyRows(p.rows)
+	return p
+}
+
+// SortByGeneAndLength sorts records by gene name and length (descending)
+func (p *CDSProcessor) SortByGeneAndLength() *CDSProcessor {
+	sort.SliceStable(p.rows, func(i, j int) bool {
+		if p.rows[i].GeneName == p.rows[j].GeneName {
+			return p.rows[i].Length > p.rows[j].Length
+		}
+		return p.rows[i].GeneName < p.rows[j].GeneName
+	})
+	return p
+}
+
+// FilterByFullCDS keeps only CDS entries that are in the full CDS set
+func (p *CDSProcessor) FilterByFullCDS(fullCDS map[string]struct{}) *CDSProcessor {
+	filtered := make([]CDSRow, 0, len(p.rows))
+	for _, r := range p.rows {
+		if _, ok := fullCDS[r.CDSID]; ok {
+			filtered = append(filtered, r)
+		}
+	}
+	p.rows = filtered
+	return p
+}
+
+// FilterValidCDSLength keeps only CDS with length divisible by 3
+func (p *CDSProcessor) FilterValidCDSLength() *CDSProcessor {
+	filtered := make([]CDSRow, 0, len(p.rows))
+	for _, r := range p.rows {
+		if r.Length%3 == 0 {
+			filtered = append(filtered, r)
+		}
+	}
+	p.rows = filtered
+	return p
+}
+
+// SortByCoordinates sorts records by chromosome, coding start, and CDSID
+func (p *CDSProcessor) SortByCoordinates() *CDSProcessor {
+	sort.Slice(p.rows, func(i, j int) bool {
+		if p.rows[i].Chr == p.rows[j].Chr {
+			if p.rows[i].ChrCodingStart == p.rows[j].ChrCodingStart {
+				return p.rows[i].CDSID < p.rows[j].CDSID
+			}
+			return p.rows[i].ChrCodingStart < p.rows[j].ChrCodingStart
+		}
+		return p.rows[i].Chr < p.rows[j].Chr
+	})
+	return p
+}
+
+// Rows returns the processed CDS rows
+func (p *CDSProcessor) Rows() []CDSRow {
+	return p.rows
+}
+
 func buildRef(cdsFile, genomeFile string, excludeChrs, onlyChrs []string, useIDs bool) (BuildRefResult, error) {
 
-	reftable, err := readCDSTable(cdsFile)
+	reftable, err := readCDS(cdsFile)
 	if err != nil {
 		return BuildRefResult{}, err
 	}
@@ -318,108 +589,7 @@ func buildRef(cdsFile, genomeFile string, excludeChrs, onlyChrs []string, useIDs
 		return BuildRefResult{}, err
 	}
 
-	// Create a set from excludeChrs
-	// Iterate over validChrs if chr not in newly created excludeChrs set
-	// Add the chr to filtered
-	// Replace validChrs with filtered
-	if len(excludeChrs) > 0 {
-		ex := make(map[string]struct{}, len(excludeChrs))
-		for _, c := range excludeChrs {
-			ex[c] = struct{}{}
-		}
-		filtered := make([]string, 0, len(validChrs))
-		for _, c := range validChrs {
-			if _, ok := ex[c]; !ok {
-				filtered = append(filtered, c)
-			}
-		}
-		validChrs = filtered
-	}
-
-	// This time keep onlyChrs
-	if len(onlyChrs) > 0 {
-		only := make(map[string]struct{}, len(onlyChrs))
-		for _, c := range onlyChrs {
-			only[c] = struct{}{}
-		}
-		filtered := make([]string, 0, len(validChrs))
-		for _, c := range validChrs {
-			if _, ok := only[c]; ok {
-				filtered = append(filtered, c)
-			}
-		}
-		validChrs = filtered
-	}
-
-	// Keep chrs common between reftable and validChrs. If none, try adding "chr" prefix to reftable chrs and check again.
-	reftableChrs := uniqueStr(func() []string {
-		out := make([]string, 0, len(reftable))
-		for _, r := range reftable {
-			out = append(out, r.Chr)
-		}
-		return out
-	}())
-
-	hasOverlap := false
-	chrSet := make(map[string]struct{}, len(reftableChrs))
-	for _, c := range reftableChrs {
-		chrSet[c] = struct{}{}
-	}
-	for _, c := range validChrs {
-		if _, ok := chrSet[c]; ok {
-			hasOverlap = true
-			break
-		}
-	}
-
-	if !hasOverlap {
-		for i := range reftable {
-			reftable[i].Chr = "chr" + reftable[i].Chr
-		}
-		chrSet = make(map[string]struct{}, len(reftable))
-		for _, r := range reftable {
-			chrSet[r.Chr] = struct{}{}
-		}
-		filtered := make([]string, 0, len(validChrs))
-		for _, c := range validChrs {
-			if _, ok := chrSet[c]; ok {
-				filtered = append(filtered, c)
-			}
-		}
-		validChrs = filtered
-		if len(validChrs) == 0 {
-			return BuildRefResult{}, fmt.Errorf("no chromosome names in common between the genome file and the CDS table")
-		}
-	} else {
-		filtered := make([]string, 0, len(validChrs))
-		for _, c := range validChrs {
-			if _, ok := chrSet[c]; ok {
-				filtered = append(filtered, c)
-			}
-		}
-		validChrs = filtered
-	}
-
-	// Keep only unique chromosomes in validChrs
-	validChrSet := make(map[string]struct{}, len(validChrs))
-	for _, c := range validChrs {
-		validChrSet[c] = struct{}{}
-	}
-
-	// Clean reftable by removing rows with missing geneID, geneName, or CDSID, and rows with chromosomes not in validChrSet
-	cleaned := make([]CDSRow, 0, len(reftable))
-	for _, r := range reftable {
-		if r.GeneID == "" || r.GeneName == "" || r.CDSID == "" {
-			continue
-		}
-		if _, ok := validChrSet[r.Chr]; !ok {
-			continue
-		}
-		cleaned = append(cleaned, r)
-	}
-	reftable = cleaned
-
-	// TODO: Remove this map conversion again
+	// Read genome and chromosome lengths
 	contigs, err := readFasta(genomeFile)
 	if err != nil {
 		return BuildRefResult{}, err
@@ -431,58 +601,41 @@ func buildRef(cdsFile, genomeFile string, excludeChrs, onlyChrs []string, useIDs
 		lengths[c.Name] = c.Length
 	}
 
-	// Check no coordinates fall outside of the chromosome lengths
-	// TODO: Move to a separate function
-	outside := 0
-	inside := make([]CDSRow, 0, len(reftable))
-	for _, r := range reftable {
-		chrLen, ok := lengths[r.Chr]
-		if !ok || r.ChrCodingStart < 1 || r.ChrCodingEnd > chrLen || r.ChrCodingStart > r.ChrCodingEnd {
-			outside++
-			continue
-		}
-		inside = append(inside, r)
-	}
-	if outside > 0 {
-		return BuildRefResult{}, fmt.Errorf("aborting buildref. %d rows in cdsfile have coordinates that fall outside of the corresponding chromosome length. please ensure that you are using the same assembly for the cdsfile and genomefile", outside)
-	}
-	reftable = inside
+	// Apply chromosome filtering using the fluent interface
+	processor := NewCDSProcessor(reftable).
+		FilterExcludedChromosomes(excludeChrs).
+		FilterOnlyChromosomes(onlyChrs).
+		NormalizeChromosomeNames(validChrs).
+		WithValidChromosomes(validChrs).
+		WithGenome(genome, lengths).
+		RemoveIncompleteRecords()
 
-	fullCDS := findFullCDS(reftable)
-
-	for i := range reftable {
-		if reftable[i].ChrCodingStart == 1 {
-			reftable[i].ChrCodingStart += 3
-			reftable[i].CDSStart += 3
-		}
-		if lengths[reftable[i].Chr] == reftable[i].ChrCodingEnd {
-			reftable[i].ChrCodingEnd -= 3
-			reftable[i].CDSEnd -= 3
-		}
+	// Validate coordinates
+	var errVal error
+	processor, errVal = processor.ValidateCoordinates()
+	if errVal != nil {
+		return BuildRefResult{}, errVal
 	}
 
-	cdsTable := uniqueCDSKeyRows(reftable)
-	sort.SliceStable(cdsTable, func(i, j int) bool {
-		if cdsTable[i].GeneName == cdsTable[j].GeneName {
-			return cdsTable[i].Length > cdsTable[j].Length
-		}
-		return cdsTable[i].GeneName < cdsTable[j].GeneName
-	})
-	cdsTable = filterCDSTable(cdsTable, fullCDS)
-	reftable = filterRowsByCDS(reftable, fullCDS)
+	// Find full CDS and apply boundary trimming
+	fullCDS := processor.FindFullCDS()
+	processor.TrimBoundaryBases()
 
-	sort.Slice(reftable, func(i, j int) bool {
-		if reftable[i].Chr == reftable[j].Chr {
-			if reftable[i].ChrCodingStart == reftable[j].ChrCodingStart {
-				return reftable[i].CDSID < reftable[j].CDSID
-			}
-			return reftable[i].ChrCodingStart < reftable[j].ChrCodingStart
-		}
-		return reftable[i].Chr < reftable[j].Chr
-	})
+	// Create separate processor for cdsTable (unique CDS records)
+	cdsTableProcessor := NewCDSProcessor(processor.Rows()).
+		DeduplicateByCDSKey().
+		SortByGeneAndLength().
+		FilterValidCDSLength().
+		FilterByFullCDS(fullCDS)
+
+	// Prepare reftable (all exon records)
+	reftable = NewCDSProcessor(processor.Rows()).
+		FilterByFullCDS(fullCDS).
+		SortByCoordinates().
+		Rows()
 
 	cdsSplit := splitByCDSID(reftable)
-	geneSplit := splitByGeneName(cdsTable)
+	geneSplit := splitByGeneName(cdsTableProcessor.Rows())
 	geneOrder := sortedKeys(geneSplit)
 
 	ref := make([]RefCDSEntry, 0, len(geneOrder))
@@ -614,26 +767,6 @@ func parseInt(v string) (int, error) {
 		return 0, err
 	}
 	return n, nil
-}
-
-func findFullCDS(rows []CDSRow) map[string]struct{} {
-	startSet := map[string]struct{}{}
-	endSet := map[string]struct{}{}
-	for _, r := range rows {
-		if r.CDSStart == 1 {
-			startSet[r.CDSID] = struct{}{}
-		}
-		if r.CDSEnd == r.Length {
-			endSet[r.CDSID] = struct{}{}
-		}
-	}
-	full := make(map[string]struct{})
-	for id := range startSet {
-		if _, ok := endSet[id]; ok {
-			full[id] = struct{}{}
-		}
-	}
-	return full
 }
 
 func uniqueCDSKeyRows(rows []CDSRow) []CDSRow {
@@ -1037,4 +1170,19 @@ func main() {
 	chrs, err := readIndex(filepath.Join("data", "chr3_segment.fa"))
 	fmt.Println(chrs, err)
 
+	cds, _ := readCDS(filepath.Join("data", "chr3_cds.tsv"))
+	fmt.Println(cds[:5], len(cds))
+
+	full := findFullCDS(cds)
+	fmt.Println(len(full))
+	for k := range full {
+		fmt.Print(k)
+		for _, v := range cds {
+			if v.CDSID == k {
+				fmt.Print(" ", v)
+			}
+		}
+		fmt.Println()
+		break
+	}
 }
