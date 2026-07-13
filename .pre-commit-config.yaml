@@ -1,0 +1,20 @@
+repos:
+  - repo: local
+    hooks:
+      - id: fmt
+        name: fmt
+        entry: pixi run fmt
+        language: system
+        pass_filenames: false
+
+      - id: vet
+        name: vet
+        entry: pixi run vet
+        language: system
+        pass_filenames: false
+
+      - id: test
+        name: test
+        entry: pixi run test
+        language: system
+        pass_filenames: false
