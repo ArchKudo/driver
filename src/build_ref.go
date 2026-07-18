@@ -26,6 +26,7 @@ type CDSRow struct {
 }
 
 // Fetched from BioMart with CDSRow fields
+// TODO: Fetch from BioMart as well (for v1.x)
 func readCDS(cdsfile string) ([]CDSRow, error) {
 	f, err := os.Open(cdsfile)
 	if err != nil {
@@ -77,26 +78,6 @@ func readCDS(cdsfile string) ([]CDSRow, error) {
 		rows = append(rows, row)
 	}
 	return rows, nil
-}
-
-func findFullCDS(rows []CDSRow) map[string]struct{} {
-	startSet := map[string]struct{}{}
-	endSet := map[string]struct{}{}
-	for _, r := range rows {
-		if r.CDSStart == 1 {
-			startSet[r.CDSID] = struct{}{}
-		}
-		if r.CDSEnd == r.Length {
-			endSet[r.CDSID] = struct{}{}
-		}
-	}
-	full := make(map[string]struct{})
-	for id := range startSet {
-		if _, ok := endSet[id]; ok {
-			full[id] = struct{}{}
-		}
-	}
-	return full
 }
 
 // Struct for parsing fasta
@@ -176,9 +157,7 @@ func readFasta(path string) ([]Contig, error) {
 	return contigs, nil
 }
 
-// readIndex returns the ordered list of chromosome names from the FASTA index
-// (.fai). Falls back to parsing the FASTA directly when the index is absent;
-// in that case names are sorted alphabetically.
+// Ordered list of chromosomes from fasta index (.fai) or fasta file (fallback)
 func readIndex(fasta string) ([]string, error) {
 	data, err := os.ReadFile(fasta + ".fai")
 	if err != nil {
@@ -264,15 +243,25 @@ type CDSProcessor struct {
 	validChrs []string
 }
 
+// Utility functions to implement chaining
+
 func NewCDSProcessor(rows []CDSRow) *CDSProcessor {
 	return &CDSProcessor{
 		rows: rows,
 	}
 }
 
-func (p *CDSProcessor) WithGenome(genome map[string]string, lengths map[string]int) *CDSProcessor {
-	p.genome = genome
-	p.lengths = lengths
+func (p *CDSProcessor) WithGenome(contigs []Contig) *CDSProcessor {
+	p.genome = make(map[string]string, len(contigs))
+	p.lengths = make(map[string]int, len(contigs))
+	for _, c := range contigs {
+		p.genome[c.Name] = c.Seq
+		if c.Length > 0 {
+			p.lengths[c.Name] = c.Length
+		} else {
+			p.lengths[c.Name] = len(c.Seq)
+		}
+	}
 	return p
 }
 
@@ -418,10 +407,6 @@ func (p *CDSProcessor) ValidateCoordinates() (*CDSProcessor, error) {
 	return p, nil
 }
 
-func (p *CDSProcessor) FindFullCDS() map[string]struct{} {
-	return findFullCDS(p.rows)
-}
-
 // TrimBoundaryBases removes first 3 bases at chromosome start and last 3 bases at chromosome end
 func (p *CDSProcessor) TrimBoundaryBases() *CDSProcessor {
 	for i := range p.rows {
@@ -466,6 +451,30 @@ func (p *CDSProcessor) SortByGeneAndLength() *CDSProcessor {
 		return p.rows[i].GeneName < p.rows[j].GeneName
 	})
 	return p
+}
+
+func findFullCDS(rows []CDSRow) map[string]struct{} {
+	startSet := map[string]struct{}{}
+	endSet := map[string]struct{}{}
+	for _, r := range rows {
+		if r.CDSStart == 1 {
+			startSet[r.CDSID] = struct{}{}
+		}
+		if r.CDSEnd == r.Length {
+			endSet[r.CDSID] = struct{}{}
+		}
+	}
+	full := make(map[string]struct{})
+	for id := range startSet {
+		if _, ok := endSet[id]; ok {
+			full[id] = struct{}{}
+		}
+	}
+	return full
+}
+
+func (p *CDSProcessor) FindFullCDS() map[string]struct{} {
+	return findFullCDS(p.rows)
 }
 
 // FilterByFullCDS keeps only CDS entries that are in the full CDS set
@@ -534,20 +543,15 @@ func buildRef(cdsFile, genomeFile string, excludeChrs, onlyChrs []string, useIDs
 	if err != nil {
 		return BuildRefResult{}, err
 	}
-	genome := make(map[string]string, len(contigs))
-	lengths := make(map[string]int, len(contigs))
-	for _, c := range contigs {
-		genome[c.Name] = c.Seq
-		lengths[c.Name] = c.Length
-	}
-
 	processor := NewCDSProcessor(reftable).
 		FilterExcludedChromosomes(excludeChrs).
 		FilterOnlyChromosomes(onlyChrs).
 		NormalizeChromosomeNames(validChrs).
 		WithValidChromosomes(validChrs).
-		WithGenome(genome, lengths).
+		WithGenome(contigs).
 		RemoveIncompleteRecords()
+
+	genome := processor.genome
 
 	// Validate coordinates
 	var errVal error

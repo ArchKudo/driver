@@ -161,8 +161,8 @@ func TestValidateCoordinates(t *testing.T) {
 		makeCDSRow("G1", "GENE1", "CDS1", "chr1", 100, 200, 1, 101, 101, 1),
 		makeCDSRow("G2", "GENE2", "CDS2", "chr1", 0, 500, 1, 251, 251, 1), // ChrCodingStart is 0 (< 1) and ChrCodingEnd > length
 	}
-	lengths := map[string]int{"chr1": 250}
-	processor := NewCDSProcessor(rows).WithGenome(nil, lengths)
+	contigs := []Contig{{Name: "chr1", Length: 250}}
+	processor := NewCDSProcessor(rows).WithGenome(contigs)
 
 	processor, err := processor.ValidateCoordinates()
 	if err == nil {
@@ -207,8 +207,8 @@ func TestTrimBoundaryBases(t *testing.T) {
 		makeCDSRow("G1", "GENE1", "CDS1", "chr1", 1, 200, 1, 200, 200, 1),
 		makeCDSRow("G2", "GENE2", "CDS2", "chr1", 100, 200, 1, 101, 101, 1),
 	}
-	lengths := map[string]int{"chr1": 200}
-	processor := NewCDSProcessor(rows).WithGenome(nil, lengths).TrimBoundaryBases()
+	contigs := []Contig{{Name: "chr1", Length: 200}}
+	processor := NewCDSProcessor(rows).WithGenome(contigs).TrimBoundaryBases()
 
 	result := processor.Rows()
 	// First row should have +3 to start (was 1) and -3 to end (was 200, chr length is 200)
@@ -340,10 +340,9 @@ func TestProcessorWithGenome(t *testing.T) {
 	rows := []CDSRow{
 		makeCDSRow("G1", "GENE1", "CDS1", "chr1", 100, 200, 1, 101, 101, 1),
 	}
-	genome := map[string]string{"chr1": "ACGTACGTACGT"}
-	lengths := map[string]int{"chr1": 12}
+	contigs := []Contig{{Name: "chr1", Seq: "ACGTACGTACGT", Length: 12}}
 
-	processor := NewCDSProcessor(rows).WithGenome(genome, lengths)
+	processor := NewCDSProcessor(rows).WithGenome(contigs)
 
 	if processor.genome["chr1"] != "ACGTACGTACGT" {
 		t.Errorf("Genome not set correctly")
