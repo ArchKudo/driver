@@ -834,7 +834,13 @@ func getSpliceSeq(genome map[string]string, chr string, positions []int, strand 
 	}
 	out := string(buf)
 	if strand == -1 {
-		out = complement(out)
+		// Preserve genomic position order for splice sites while complementing.
+		out = reverseComplement(out)
+		rb := []byte(out)
+		for i, j := 0, len(rb)-1; i < j; i, j = i+1, j-1 {
+			rb[i], rb[j] = rb[j], rb[i]
+		}
+		out = string(rb)
 	}
 	return out, nil
 }
@@ -847,37 +853,24 @@ func addToAll(nums []int, delta int) []int {
 	return out
 }
 
-func complement(seq string) string {
-	b := []byte(strings.ToUpper(seq))
-	for i := range b {
-		b[i] = compBase(b[i])
-	}
-	return string(b)
-}
-
 func reverseComplement(seq string) string {
-	b := []byte(strings.ToUpper(seq))
-	for i, j := 0, len(b)-1; i <= j; i, j = i+1, j-1 {
-		bi := compBase(b[j])
-		bj := compBase(b[i])
-		b[i], b[j] = bi, bj
+	trans := map[byte]byte{
+		'A': 'T',
+		'T': 'A',
+		'C': 'G',
+		'G': 'C',
 	}
-	return string(b)
-}
-
-func compBase(b byte) byte {
-	switch b {
-	case 'A':
-		return 'T'
-	case 'C':
-		return 'G'
-	case 'G':
-		return 'C'
-	case 'T':
-		return 'A'
-	default:
-		return 'N'
+	revc := make([]byte, len(seq))
+	upper := strings.ToUpper(seq)
+	for idx := range upper {
+		b := upper[len(upper)-idx-1]
+		if c, ok := trans[b]; ok {
+			revc[idx] = c
+		} else {
+			revc[idx] = 'N'
+		}
 	}
+	return string(revc)
 }
 
 var standardCode = map[string]rune{

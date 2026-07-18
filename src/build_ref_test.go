@@ -358,19 +358,12 @@ func TestUniqueAndSliceHelpers(t *testing.T) {
 }
 
 func TestComplementFunctions(t *testing.T) {
-	if got := compBase('A'); got != 'T' {
-		t.Fatalf("compBase mismatch for A: got %c", got)
-	}
-	if got := compBase('X'); got != 'N' {
-		t.Fatalf("compBase mismatch for unknown base: got %c", got)
-	}
-
-	if got := complement("AcgTn"); got != "TGCAN" {
-		t.Fatalf("complement mismatch: got %s", got)
-	}
-
 	if got := reverseComplement("ACGTN"); got != "NACGT" {
 		t.Fatalf("reverseComplement mismatch: got %s", got)
+	}
+
+	if got := reverseComplement("AcgTn"); got != "NACGT" {
+		t.Fatalf("reverseComplement mismatch with lowercase/unknown: got %s", got)
 	}
 }
 
