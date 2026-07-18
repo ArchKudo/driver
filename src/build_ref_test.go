@@ -337,12 +337,12 @@ func TestParseInt(t *testing.T) {
 }
 
 func TestUniqueAndSliceHelpers(t *testing.T) {
-	if got := uniqueStr([]string{"a", "b", "a", "c", "b"}); !reflect.DeepEqual(got, []string{"a", "b", "c"}) {
-		t.Fatalf("uniqueStr mismatch: got %v", got)
+	if got := unique([]string{"a", "b", "a", "c", "b"}); !reflect.DeepEqual(got, []string{"a", "b", "c"}) {
+		t.Fatalf("unique mismatch for strings: got %v", got)
 	}
 
-	if got := uniqueInt([]int{1, 1, 2, 2, 3, 1, 1}); !reflect.DeepEqual(got, []int{1, 2, 3, 1}) {
-		t.Fatalf("uniqueInt mismatch: got %v", got)
+	if got := unique([]int{1, 1, 2, 2, 3, 1, 1}); !reflect.DeepEqual(got, []int{1, 2, 3}) {
+		t.Fatalf("unique mismatch for ints: got %v", got)
 	}
 
 	if got := addToAll([]int{1, 5, 10}, -2); !reflect.DeepEqual(got, []int{-1, 3, 8}) {

@@ -318,7 +318,7 @@ func (p *CDSProcessor) FilterOnlyChromosomes(onlyChrs []string) *CDSProcessor {
 }
 
 func (p *CDSProcessor) NormalizeChromosomeNames(genomeChrs []string) *CDSProcessor {
-	reftableChrs := uniqueStr(func() []string {
+	reftableChrs := unique(func() []string {
 		out := make([]string, 0, len(p.rows))
 		for _, r := range p.rows {
 			out = append(out, r.Chr)
@@ -817,7 +817,7 @@ func getSpliceSites(cds []CDSRow) []int {
 		}
 	}
 	sort.Ints(positions)
-	return uniqueInt(positions)
+	return unique(positions)
 }
 
 func getSpliceSeq(genome map[string]string, chr string, positions []int, strand int) (string, error) {
@@ -1038,30 +1038,15 @@ func buildLMatrix(entry RefCDSEntry, meta codonMeta) ([192][4]int, error) {
 	return L, nil
 }
 
-func uniqueStr(items []string) []string {
-	seen := map[string]struct{}{}
-	out := make([]string, 0, len(items))
+func unique[T comparable](items []T) []T {
+	seen := map[T]struct{}{}
+	out := make([]T, 0, len(items))
 	for _, item := range items {
 		if _, ok := seen[item]; ok {
 			continue
 		}
 		seen[item] = struct{}{}
 		out = append(out, item)
-	}
-	return out
-}
-
-func uniqueInt(items []int) []int {
-	if len(items) == 0 {
-		return nil
-	}
-	out := make([]int, 0, len(items))
-	last := items[0] - 1
-	for _, item := range items {
-		if item != last {
-			out = append(out, item)
-			last = item
-		}
 	}
 	return out
 }
