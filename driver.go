@@ -2178,7 +2178,6 @@ func usage() string {
 Go dNdScv-compatible CLI
 
 Commands:
-  convert-data    Convert archive/dndscv data + inst/extdata assets into data/
   buildref        Build reference database from cds/genome
   buildcodon      Add codon-level fields to reference database
   dndscv          Run dnds analysis from mutations + refdb
@@ -2189,7 +2188,6 @@ Commands:
   withingenednds  Run within-gene regional summary
 
 Examples:
-  go run . convert-data -root .
   go run . buildref -cdsfile archive/dndscv/inst/extdata/BioMart_human_GRCh37_chr3_segment.txt -genomefile archive/dndscv/inst/extdata/chr3_segment.fa -outfile data/refcds.json
   go run . dndscv -mutations data/simple_breast.csv -refdb data/refcds.json -outfile data/dndsout.json -outmats=true
   go run . sitednds -dndsout data/dndsout.json -outfile data/sitednds.json
