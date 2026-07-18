@@ -820,6 +820,26 @@ func getSpliceSites(cds []CDSRow) []int {
 	return unique(positions)
 }
 
+func reverseComplement(seq string) string {
+	trans := map[byte]byte{
+		'A': 'T',
+		'T': 'A',
+		'C': 'G',
+		'G': 'C',
+	}
+	revc := make([]byte, len(seq))
+	upper := strings.ToUpper(seq)
+	for idx := range upper {
+		b := upper[len(upper)-idx-1]
+		if c, ok := trans[b]; ok {
+			revc[idx] = c
+		} else {
+			revc[idx] = 'N'
+		}
+	}
+	return string(revc)
+}
+
 func getSpliceSeq(genome map[string]string, chr string, positions []int, strand int) (string, error) {
 	seq, ok := genome[chr]
 	if !ok {
@@ -851,26 +871,6 @@ func addToAll(nums []int, delta int) []int {
 		out[i] = n + delta
 	}
 	return out
-}
-
-func reverseComplement(seq string) string {
-	trans := map[byte]byte{
-		'A': 'T',
-		'T': 'A',
-		'C': 'G',
-		'G': 'C',
-	}
-	revc := make([]byte, len(seq))
-	upper := strings.ToUpper(seq)
-	for idx := range upper {
-		b := upper[len(upper)-idx-1]
-		if c, ok := trans[b]; ok {
-			revc[idx] = c
-		} else {
-			revc[idx] = 'N'
-		}
-	}
-	return string(revc)
 }
 
 var standardCode = map[string]rune{
