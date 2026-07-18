@@ -75,7 +75,7 @@ func TestCLICommandsEndToEnd(t *testing.T) {
 	}
 
 	tmp := t.TempDir()
-	root := filepath.Clean(".")
+	root := filepath.Clean("..")
 
 	cdsSrc := filepath.Join(root, "archive", "dndscv", "inst", "extdata", "BioMart_human_GRCh37_chr3_segment.txt")
 	faSrc := filepath.Join(root, "archive", "dndscv", "inst", "extdata", "chr3_segment.fa")
@@ -166,7 +166,7 @@ func writeMutationCSVFromRef(t *testing.T, refPath, mutPath string) {
 
 func runMainCmd(t *testing.T, root string, args ...string) {
 	t.Helper()
-	cmd := exec.Command("go", append([]string{"run", "."}, args...)...)
+	cmd := exec.Command("go", append([]string{"run", "./src"}, args...)...)
 	cmd.Dir = root
 	out, err := cmd.CombinedOutput()
 	if err != nil {

@@ -6,9 +6,9 @@ platforms = ["linux-64"]
 version = "0.1.0"
 
 [tasks]
-fmt = "gofmt -w *.go"
-vet = "go vet *.go"
-test = "go test *.go"
+fmt = "gofmt -w src/*.go"
+vet = "go vet ./src/..."
+test = "go test ./src/..."
 
 [dependencies]
 r = ">=4.5,<4.6"

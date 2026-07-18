@@ -206,7 +206,7 @@ func lTotals(L [192][4]int) (syn, mis, non, splice int) {
 }
 
 func TestBuildRef_ExtDataMatchesRDAOracle(t *testing.T) {
-	base := filepath.Join("archive", "dndscv", "inst", "extdata")
+	base := filepath.Join("..", "archive", "dndscv", "inst", "extdata")
 	cds := filepath.Join(base, "BioMart_human_GRCh37_chr3_segment.txt")
 	fasta := filepath.Join(base, "chr3_segment.fa")
 	rda := filepath.Join(base, "refcds_example_chr3_segment.rda")
@@ -294,7 +294,7 @@ func TestBuildRef_ExtDataMatchesRDAOracle(t *testing.T) {
 }
 
 func TestBuildRef_OnlyChrFilter(t *testing.T) {
-	base := filepath.Join("archive", "dndscv", "inst", "extdata")
+	base := filepath.Join("..", "archive", "dndscv", "inst", "extdata")
 	cds := filepath.Join(base, "BioMart_human_GRCh37_chr3_segment.txt")
 	fasta := filepath.Join(base, "chr3_segment.fa")
 
