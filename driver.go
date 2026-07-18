@@ -7,10 +7,8 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"io"
 	"math"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -1976,111 +1974,6 @@ func convertDelimitedFile(input, output string, delimiter rune) error {
 	return w.Error()
 }
 
-func convertRDAWithDockerR(input, outputJSON string) error {
-	if _, err := exec.LookPath("docker"); err != nil {
-		return err
-	}
-	if err := exec.Command("docker", "exec", "r-dev", "true").Run(); err != nil {
-		return err
-	}
-	wd, err := os.Getwd()
-	if err != nil {
-		return err
-	}
-	rel, err := filepath.Rel(wd, input)
-	if err != nil {
-		return err
-	}
-	containerPath := "/workspace/" + filepath.ToSlash(rel)
-	rScript := strings.Join([]string{
-		"args <- commandArgs(trailingOnly=TRUE)",
-		"load(args[1])",
-		"nm <- ls()",
-		"obj <- mget(nm)",
-		"jsonlite::write_json(obj, path=args[2], auto_unbox=TRUE, dataframe='rows', matrix='rowmajor', null='null', pretty=TRUE)",
-	}, "\n")
-	cmd := exec.Command("docker", "exec", "-i", "r-dev", "Rscript", "-", containerPath, filepath.ToSlash(outputJSON))
-	cmd.Stdin = strings.NewReader(rScript)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("rda conversion failed: %w: %s", err, strings.TrimSpace(string(out)))
-	}
-	return nil
-}
-
-func convertArchiveAssetsToData(repoRoot string) error {
-	archiveData := filepath.Join(repoRoot, "archive", "dndscv", "data")
-	archiveExt := filepath.Join(repoRoot, "archive", "dndscv", "inst", "extdata")
-	target := filepath.Join(repoRoot, "data")
-	if err := os.MkdirAll(target, 0o755); err != nil {
-		return err
-	}
-
-	convertDir := func(dir string) error {
-		entries, err := os.ReadDir(dir)
-		if err != nil {
-			return err
-		}
-		for _, e := range entries {
-			if e.IsDir() {
-				continue
-			}
-			name := e.Name()
-			src := filepath.Join(dir, name)
-			ext := strings.ToLower(filepath.Ext(name))
-			base := strings.TrimSuffix(name, ext)
-			switch ext {
-			case ".rda":
-				if err := convertRDAWithDockerR(src, filepath.Join(target, base+".json")); err != nil {
-					return err
-				}
-			case ".txt":
-				if err := convertDelimitedFile(src, filepath.Join(target, base+".csv"), '\t'); err != nil {
-					return err
-				}
-				if err := copyFile(src, filepath.Join(target, base+".tsv")); err != nil {
-					return err
-				}
-			case ".fa", ".fasta", ".fai", ".csv", ".tsv":
-				if err := copyFile(src, filepath.Join(target, name)); err != nil {
-					return err
-				}
-			default:
-				continue
-			}
-		}
-		return nil
-	}
-
-	if err := convertDir(archiveData); err != nil {
-		return err
-	}
-	if err := convertDir(archiveExt); err != nil {
-		return err
-	}
-	return nil
-}
-
-func copyFile(src, dst string) error {
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-		return err
-	}
-	out, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-	if _, err := io.Copy(out, in); err != nil {
-		return err
-	}
-	return out.Close()
-}
-
 func parseCSVList(raw string) []string {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -2280,15 +2173,6 @@ func commandWithinGeneDNDS(args []string) error {
 	return writeJSONFile(*out, res)
 }
 
-func commandConvertData(args []string) error {
-	fs := flag.NewFlagSet("convert-data", flag.ContinueOnError)
-	root := fs.String("root", ".", "repository root")
-	if err := fs.Parse(args); err != nil {
-		return err
-	}
-	return convertArchiveAssetsToData(*root)
-}
-
 func usage() string {
 	return strings.TrimSpace(`
 Go dNdScv-compatible CLI
@@ -2321,8 +2205,6 @@ func main() {
 	args := os.Args[2:]
 	var err error
 	switch cmd {
-	case "convert-data":
-		err = commandConvertData(args)
 	case "buildref":
 		err = commandBuildRef(args)
 	case "buildcodon":
