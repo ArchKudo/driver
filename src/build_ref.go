@@ -256,11 +256,7 @@ func (p *CDSProcessor) WithGenome(contigs []Contig) *CDSProcessor {
 	p.lengths = make(map[string]int, len(contigs))
 	for _, c := range contigs {
 		p.genome[c.Name] = c.Seq
-		if c.Length > 0 {
-			p.lengths[c.Name] = c.Length
-		} else {
-			p.lengths[c.Name] = len(c.Seq)
-		}
+		p.lengths[c.Name] = c.Length
 	}
 	return p
 }
