@@ -229,13 +229,6 @@ type BuildRefResult struct {
 	GRGenes []GeneRange
 }
 
-type codonMeta struct {
-	trinucs     []string
-	trinucIndex map[string]int
-	subsIndex   map[string]int
-	impact      [64][64]int
-}
-
 type CDSProcessor struct {
 	rows      []CDSRow
 	genome    map[string]string
@@ -302,6 +295,9 @@ func (p *CDSProcessor) FilterOnlyChromosomes(onlyChrs []string) *CDSProcessor {
 	return p
 }
 
+// Keep Chromosome common between both fasta and cdstable
+// TODO: Sensible naming
+// TODO: Drop the first part where it checks if there is overlap?
 func (p *CDSProcessor) NormalizeChromosomeNames(genomeChrs []string) *CDSProcessor {
 	reftableChrs := unique(func() []string {
 		out := make([]string, 0, len(p.rows))
@@ -361,6 +357,7 @@ func (p *CDSProcessor) NormalizeChromosomeNames(genomeChrs []string) *CDSProcess
 	return p
 }
 
+// TODO: Log what's removed / percentage removed
 func (p *CDSProcessor) RemoveIncompleteRecords() *CDSProcessor {
 	validChrSet := make(map[string]struct{}, len(p.validChrs))
 	for _, c := range p.validChrs {
@@ -403,7 +400,7 @@ func (p *CDSProcessor) ValidateCoordinates() (*CDSProcessor, error) {
 	return p, nil
 }
 
-// TrimBoundaryBases removes first 3 bases at chromosome start and last 3 bases at chromosome end
+// Remove the first three and last three bases for trinucl
 func (p *CDSProcessor) TrimBoundaryBases() *CDSProcessor {
 	for i := range p.rows {
 		if p.rows[i].ChrCodingStart == 1 {
@@ -438,7 +435,7 @@ func (p *CDSProcessor) DeduplicateByCDSKey() *CDSProcessor {
 	return p
 }
 
-// SortByGeneAndLength sorts records by gene name and length (descending)
+// Sort to find the longest length isoform for gene
 func (p *CDSProcessor) SortByGeneAndLength() *CDSProcessor {
 	sort.SliceStable(p.rows, func(i, j int) bool {
 		if p.rows[i].GeneName == p.rows[j].GeneName {
@@ -449,6 +446,7 @@ func (p *CDSProcessor) SortByGeneAndLength() *CDSProcessor {
 	return p
 }
 
+// For all rows get cds.start=1, cds.end=cds.length
 func findFullCDS(rows []CDSRow) map[string]struct{} {
 	startSet := map[string]struct{}{}
 	endSet := map[string]struct{}{}
@@ -514,6 +512,66 @@ func (p *CDSProcessor) SortByCoordinates() *CDSProcessor {
 // Rows returns the processed CDS rows
 func (p *CDSProcessor) Rows() []CDSRow {
 	return p.rows
+}
+
+type codonMeta struct {
+	trinucs     []string
+	trinucIndex map[string]int
+	subsIndex   map[string]int
+	impact      [64][64]int
+}
+
+func initCodonMeta() codonMeta {
+	nt := []byte{'A', 'C', 'G', 'T'}
+	trinucs := make([]string, 0, 64)
+
+	// Create all combinations of codons
+	for _, a := range nt {
+		for _, b := range nt {
+			for _, c := range nt {
+				trinucs = append(trinucs, string([]byte{a, b, c}))
+			}
+		}
+	}
+
+	// Index codon permutations
+	trinucIndex := make(map[string]int, 64)
+	for i, t := range trinucs {
+		trinucIndex[t] = i
+	}
+
+	subsIndex := make(map[string]int, 192)
+	idx := 0
+	for _, old := range trinucs {
+		for _, newBase := range []byte{'A', 'C', 'G', 'T'} {
+			if old[1] == newBase {
+				continue
+			}
+			newTri := string([]byte{old[0], newBase, old[2]})
+			subsIndex[old+">"+newTri] = idx
+			idx++
+		}
+	}
+
+	var impact [64][64]int
+	for i, from := range trinucs {
+		fromAA, _ := translateDNA(from)
+		for j, to := range trinucs {
+			toAA, _ := translateDNA(to)
+			switch {
+			case toAA == fromAA:
+				impact[i][j] = 1
+			case toAA == "*":
+				impact[i][j] = 3
+			case toAA != "*" && fromAA != "*" && toAA != fromAA:
+				impact[i][j] = 2
+			default:
+				impact[i][j] = 0
+			}
+		}
+	}
+
+	return codonMeta{trinucs: trinucs, trinucIndex: trinucIndex, subsIndex: subsIndex, impact: impact}
 }
 
 func buildRef(cdsFile, genomeFile string, excludeChrs, onlyChrs []string, useIDs bool) (BuildRefResult, error) {
@@ -908,55 +966,6 @@ func containsBase(seq string, base byte) bool {
 		}
 	}
 	return false
-}
-
-func initCodonMeta() codonMeta {
-	nt := []byte{'A', 'C', 'G', 'T'}
-	trinucs := make([]string, 0, 64)
-	for _, a := range nt {
-		for _, b := range nt {
-			for _, c := range nt {
-				trinucs = append(trinucs, string([]byte{a, b, c}))
-			}
-		}
-	}
-	trinucIndex := make(map[string]int, 64)
-	for i, t := range trinucs {
-		trinucIndex[t] = i
-	}
-
-	subsIndex := make(map[string]int, 192)
-	idx := 0
-	for _, old := range trinucs {
-		for _, newBase := range []byte{'A', 'C', 'G', 'T'} {
-			if old[1] == newBase {
-				continue
-			}
-			newTri := string([]byte{old[0], newBase, old[2]})
-			subsIndex[old+">"+newTri] = idx
-			idx++
-		}
-	}
-
-	var impact [64][64]int
-	for i, from := range trinucs {
-		fromAA, _ := translateDNA(from)
-		for j, to := range trinucs {
-			toAA, _ := translateDNA(to)
-			switch {
-			case toAA == fromAA:
-				impact[i][j] = 1
-			case toAA == "*":
-				impact[i][j] = 3
-			case toAA != "*" && fromAA != "*" && toAA != fromAA:
-				impact[i][j] = 2
-			default:
-				impact[i][j] = 0
-			}
-		}
-	}
-
-	return codonMeta{trinucs: trinucs, trinucIndex: trinucIndex, subsIndex: subsIndex, impact: impact}
 }
 
 func buildLMatrix(entry RefCDSEntry, meta codonMeta) ([192][4]int, error) {

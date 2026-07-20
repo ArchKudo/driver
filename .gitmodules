@@ -1,3 +1,6 @@
 [submodule "archive/dndscv"]
 	path = archive/dndscv
 	url = https://github.com/im3sanger/dndscv.git
+[submodule "archive/dndscv_data"]
+	path = archive/dndscv_data
+	url = git@github.com:im3sanger/dndscv_data.git
